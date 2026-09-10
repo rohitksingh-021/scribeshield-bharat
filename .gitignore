@@ -1,0 +1,5 @@
+venv/
+__pycache__/
+*.pyc
+scribeshield_local.db
+.DS_Store
