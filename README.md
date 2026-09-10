@@ -32,10 +32,9 @@ ScribeShield Bharat operates fully on-device at the point of care:
 ## 🚀 Local Setup
 
 1. **Clone the repository:**
-   \`\`\`bash
-   git clone https://github.com/<your-username>/scribeshield-bharat.git
+   ```bash
+   git clone [https://github.com/rohitksingh-021/scribeshield-bharat.git](https://github.com/rohitksingh-021/scribeshield-bharat.git)
    cd scribeshield-bharat
-   \`\`\`
 
 2. **Create and activate virtual environment:**
    \`\`\`bash
