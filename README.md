@@ -21,6 +21,15 @@ ScribeShield Bharat operates fully on-device at the point of care:
 
 ---
 
+## 🚦 Project Status & Execution Modes
+
+ScribeShield Bharat implements a modular inference router with a graceful fallback architecture:
+
+- **Current Live Mode (Offline Simulation Engine):** Runs deterministically on the web demo using pre-configured bilingual clinical dialogues. It demonstrates complete end-to-end data pipelines: entity parsing, SOAP generation, ABDM FHIR R4 JSON schema generation, and transactional SQLite store-and-forward syncing.
+- **Production Edge Target (Hexagon NPU / Live API):** The inference engine is designed to connect to the Qualcomm® AI Hub SDK (`qai-hub`) and INT8 quantized models. Once cloud credentials (`QUALCOMM_API_TOKEN` / LLM API key) are supplied via environment secrets, live real-time audio extraction activates automatically without UI rewrites.
+
+---
+
 ## 🛠️ Tech Stack
 - **Compute:** Qualcomm® AI Hub SDK (`qai-hub`), targeting Qualcomm Hexagon™ NPU
 - **Frontend / Runtime:** Streamlit (Python 3.14)
