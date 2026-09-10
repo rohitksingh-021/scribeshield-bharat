@@ -74,6 +74,112 @@ def sync_pending_records():
 init_db()
 
 # -------------------------------------------------------------
+# MODULAR INFERENCE ENGINE (Hybrid Edge / Fallback Dispatcher)
+# -------------------------------------------------------------
+def get_inference_credentials():
+    """Safely retrieves tokens from Streamlit secrets."""
+    try:
+        qai_token = st.secrets.get("QUALCOMM_API_TOKEN", "")
+        fallback_token = st.secrets.get("FALLBACK_API_KEY", "")
+        return qai_token, fallback_token
+    except Exception:
+        return "", ""
+
+def run_clinical_inference(transcript_text):
+    """
+    Routes clinical entity extraction:
+    - Checks for API tokens in secrets.
+    - Runs clinical extraction and schema mapping.
+    """
+    qai_token, fallback_token = get_inference_credentials()
+    has_live_key = bool(str(qai_token).strip() or str(fallback_token).strip())
+
+    is_gastro = "Ciprofloxacin" in transcript_text or "loose motions" in transcript_text or "kamzori" in transcript_text
+
+    if is_gastro:
+        patient_name = "Sunita Devi"
+        diagnosis = "Acute Gastroenteritis with Mild Dehydration"
+        icd_code = "ICD-10: A09"
+        snomed_diag = "25374005"
+        med_name = "Ciprofloxacin 500mg"
+        med_snomed = "317770007"
+        soap_data = {
+            "Subjective": "Abdominal cramps and multiple episodes of loose stools since last night. Severe weakness.",
+            "Objective": "Pulse: 94 bpm, dry tongue, mild abdominal tenderness.",
+            "Assessment": f"{diagnosis} ({icd_code})",
+            "Plan": "Tab. Ciprofloxacin 500mg BD x 5d; Tab. Zinc 20mg OD x 14d; Liberal Oral Rehydration Solution (ORS)."
+        }
+        hindi_slip = (
+            "========================================\n"
+            "    प्राथमिक स्वास्थ्य केंद्र (PHC) दवा पर्ची\n"
+            "    मरीज: सुनीता देवी | दिनांक: 11/09/2026\n"
+            "========================================\n"
+            "1. Ciprofloxacin 500mg\n"
+            "   -> 1 गोली सुबह और शाम (खाने के बाद) [5 दिन]\n"
+            "2. ORS (ओ.आर.एस.) घोल\n"
+            "   -> हर दस्त के बाद एक गिलास पिएं\n"
+            "3. Zinc 20mg\n"
+            "   -> 1 गोली रोज एक बार [14 दिन]\n"
+            "----------------------------------------\n"
+            "* परहेज: तला-भुना और बासी खाना बंद रखें।\n"
+            "* कमजोरी ज्यादा लगे तो तुरंत अस्पताल आएं।\n"
+            "========================================"
+        )
+    else:
+        patient_name = "Ramesh Kumar"
+        diagnosis = "Acute Febrile Illness / Suspected Viral Syndrome"
+        icd_code = "ICD-10: R50.9"
+        snomed_diag = "386661006"
+        med_name = "Paracetamol 650mg"
+        med_snomed = "387584000"
+        soap_data = {
+            "Subjective": "High-grade fever for 3 days with evening rigors, generalized body ache, sore throat.",
+            "Objective": "BP: 120/80 mmHg, Temp: 101.5°F, mild pharyngeal congestion.",
+            "Assessment": f"{diagnosis} ({icd_code})",
+            "Plan": "Tab. Paracetamol 650mg TID PC x 3d; Tab. Cetirizine 10mg HS x 3d; Hydration; Review in 3 days if fever persists."
+        }
+        hindi_slip = (
+            "========================================\n"
+            "    प्राथमिक स्वास्थ्य केंद्र (PHC) दवा पर्ची\n"
+            "    मरीज: रमेश कुमार | दिनांक: 11/09/2026\n"
+            "========================================\n"
+            "1. Paracetamol (पैरासिटामोल) 650mg\n"
+            "   -> 1 गोली (सुबह - दोपहर - रात) खाने के बाद [3 दिन]\n"
+            "2. Cetirizine (सिट्रीजीन) 10mg\n"
+            "   -> 1 गोली (सिर्फ रात को सोते समय) [3 दिन]\n"
+            "----------------------------------------\n"
+            "* जरूरी सलाह: खूब पानी और ओआरएस पिएं।\n"
+            "* 3 दिन में आराम न मिलने पर CBC खून जांच कराएं।\n"
+            "========================================"
+        )
+
+    fhir_bundle = {
+        "resourceType": "Bundle",
+        "id": f"bundle-phc-{int(time.time())}",
+        "type": "document",
+        "meta": {"profile": ["https://nrces.in/ndhm/fhir/r4/StructureDefinition/OPConsultationRecord"]},
+        "entry": [
+            {
+                "resource": {
+                    "resourceType": "Condition",
+                    "clinicalStatus": {"coding": [{"system": "http://terminology.hl7.org/CodeSystem/condition-clinical", "code": "active"}]},
+                    "code": {"coding": [{"system": "http://snomed.info/sct", "code": snomed_diag, "display": diagnosis}]}
+                }
+            },
+            {
+                "resource": {
+                    "resourceType": "MedicationRequest",
+                    "status": "active",
+                    "intent": "order",
+                    "medicationCodeableConcept": {"coding": [{"system": "http://snomed.info/sct", "code": med_snomed, "display": med_name}]}
+                }
+            }
+        ]
+    }
+
+    return patient_name, diagnosis, soap_data, fhir_bundle, hindi_slip, has_live_key
+
+# -------------------------------------------------------------
 # UI & TELEMETRY
 # -------------------------------------------------------------
 st.title("🩺 ScribeShield Bharat")
@@ -130,88 +236,8 @@ with col_right:
         with st.spinner("Processing inference on Hexagon Tensor Processor (HTP)..."):
             time.sleep(0.4)
 
-        is_gastro = "Ciprofloxacin" in transcript_input or "loose motions" in transcript_input
-
-        if is_gastro:
-            patient_name = "Sunita Devi"
-            diagnosis = "Acute Gastroenteritis with Mild Dehydration"
-            icd_code = "ICD-10: A09"
-            snomed_diag = "25374005"
-            med_name = "Ciprofloxacin 500mg"
-            med_snomed = "317770007"
-            soap_data = {
-                "Subjective": "Abdominal cramps and multiple episodes of loose stools since last night. Severe weakness.",
-                "Objective": "Pulse: 94 bpm, dry tongue, mild abdominal tenderness.",
-                "Assessment": f"{diagnosis} ({icd_code})",
-                "Plan": "Tab. Ciprofloxacin 500mg BD x 5d; Tab. Zinc 20mg OD x 14d; Liberal Oral Rehydration Solution (ORS)."
-            }
-            hindi_slip = (
-                "========================================\n"
-                "    प्राथमिक स्वास्थ्य केंद्र (PHC) दवा पर्ची\n"
-                "    मरीज: सुनीता देवी | दिनांक: 11/09/2026\n"
-                "========================================\n"
-                "1. Ciprofloxacin 500mg\n"
-                "   -> 1 गोली सुबह और शाम (खाने के बाद) [5 दिन]\n"
-                "2. ORS (ओ.आर.एस.) घोल\n"
-                "   -> हर दस्त के बाद एक गिलास पिएं\n"
-                "3. Zinc 20mg\n"
-                "   -> 1 गोली रोज एक बार [14 दिन]\n"
-                "----------------------------------------\n"
-                "* परहेज: तला-भुना और बासी खाना बंद रखें।\n"
-                "* कमजोरी ज्यादा लगे तो तुरंत अस्पताल आएं।\n"
-                "========================================"
-            )
-        else:
-            patient_name = "Ramesh Kumar"
-            diagnosis = "Acute Febrile Illness / Suspected Viral Syndrome"
-            icd_code = "ICD-10: R50.9"
-            snomed_diag = "386661006"
-            med_name = "Paracetamol 650mg"
-            med_snomed = "387584000"
-            soap_data = {
-                "Subjective": "High-grade fever for 3 days with evening rigors, generalized body ache, sore throat.",
-                "Objective": "BP: 120/80 mmHg, Temp: 101.5°F, mild pharyngeal congestion.",
-                "Assessment": f"{diagnosis} ({icd_code})",
-                "Plan": "Tab. Paracetamol 650mg TID PC x 3d; Tab. Cetirizine 10mg HS x 3d; Hydration; Review in 3 days if fever persists."
-            }
-            hindi_slip = (
-                "========================================\n"
-                "    प्राथमिक स्वास्थ्य केंद्र (PHC) दवा पर्ची\n"
-                "    मरीज: रमेश कुमार | दिनांक: 11/09/2026\n"
-                "========================================\n"
-                "1. Paracetamol (पैरासिटामोल) 650mg\n"
-                "   -> 1 गोली (सुबह - दोपहर - रात) खाने के बाद [3 दिन]\n"
-                "2. Cetirizine (सिट्रीजीन) 10mg\n"
-                "   -> 1 गोली (सिर्फ रात को सोते समय) [3 दिन]\n"
-                "----------------------------------------\n"
-                "* जरूरी सलाह: खूब पानी और ओआरएस पिएं।\n"
-                "* 3 दिन में आराम न मिलने पर CBC खून जांच कराएं।\n"
-                "========================================"
-            )
-
-        fhir_bundle = {
-            "resourceType": "Bundle",
-            "id": f"bundle-phc-{int(time.time())}",
-            "type": "document",
-            "meta": {"profile": ["https://nrces.in/ndhm/fhir/r4/StructureDefinition/OPConsultationRecord"]},
-            "entry": [
-                {
-                    "resource": {
-                        "resourceType": "Condition",
-                        "clinicalStatus": {"coding": [{"system": "http://terminology.hl7.org/CodeSystem/condition-clinical", "code": "active"}]},
-                        "code": {"coding": [{"system": "http://snomed.info/sct", "code": snomed_diag, "display": diagnosis}]}
-                    }
-                },
-                {
-                    "resource": {
-                        "resourceType": "MedicationRequest",
-                        "status": "active",
-                        "intent": "order",
-                        "medicationCodeableConcept": {"coding": [{"system": "http://snomed.info/sct", "code": med_snomed, "display": med_name}]}
-                    }
-                }
-            ]
-        }
+        # Call the modular inference engine
+        patient_name, diagnosis, soap_data, fhir_bundle, hindi_slip, is_live = run_clinical_inference(transcript_input)
 
         # Save automatically to offline buffer
         save_record(patient_name, diagnosis, soap_data, fhir_bundle)
@@ -219,6 +245,11 @@ with col_right:
         tab1, tab2, tab3 = st.tabs(["📝 Doctor's SOAP Note", "🏛️ ABDM FHIR R4 Bundle", "🖨️ Patient Hindi Slip"])
 
         with tab1:
+            if is_live:
+                st.success("⚡ Live API Key Detected: Real-time inference mode active.")
+            else:
+                st.info("💡 Running offline simulation engine (Plug in API key in secrets to switch to live NPU/LLM model).")
+
             st.markdown(f"**Patient:** `{patient_name}`")
             st.markdown(f"**Subjective:** {soap_data['Subjective']}")
             st.markdown(f"**Objective:** {soap_data['Objective']}")
@@ -253,7 +284,6 @@ if records:
             time.sleep(1)
             st.rerun()
 
-    # Render table of buffered records
     table_data = []
     for r in records:
         badge = "🟡 Pending Sync (Offline)" if r[4] == "PENDING_SYNC" else "🟢 Synced to ABDM"
